@@ -20,7 +20,6 @@ driver.implicitly_wait(3) # 로딩이 끝날 때 까지 대기
 # 네이버 로그인
 id = 'user_id' # 사용자 아이디
 pw = 'user_password' # 비밀번호
-
 driver.execute_script("document.getElementsByName('id')[0].value=\'" + id + "\'")
 time.sleep(1)
 driver.execute_script("document.getElementsByName('pw')[0].value=\'" + pw + "\'")
@@ -49,38 +48,48 @@ for i in range(4, 230): # 4행부터 229번째 행 까지
         WebDriverWait(driver, 1).until(EC.alert_is_present(),
                                        'Timed out waiting for PA creation ' +
                                        'confirmation popup to appear.')
-      
+     
         alert = driver.switch_to.alert
         alert.accept()
         sheet['I' + str(i)] = '삭제된 게시물' # I열 (댓글수)
         sheet['H' + str(i)] = '삭제된 게시물' # H열 (조회수)
-          
+         
     except TimeoutException: # 경고창이 없을 경우
-        driver.switch_to_default_content # 상위 프레임으로 전환
-        driver.switch_to.frame('cafe_main') # cafe_main 프레임으로 전환
-               
+     
         html = driver.page_source # 현재 페이지의 주소를 반환 
         soup = BeautifulSoup(html, 'html.parser')
-          
+              
+        # 카페 포스트 본문을 보여주는 iframe 주소를 찾는다
+        iframes = soup.find_all('iframe', id="cafe_main")
+              
+        for iframe in iframes:
+            print(iframe.get('name'))
+              
+        driver.switch_to_default_content # 상위 프레임으로 전환
+        driver.switch_to.frame('cafe_main') # cafe_main 프레임으로 전환
+              
+        html = driver.page_source # 현재 페이지의 주소를 반환 
+        soup = BeautifulSoup(html, 'html.parser')
+         
         # 댓글수와 조회수를 찾는다     
         reply_sort = soup.find_all('div', class_='fl reply_sort')
-         
+        
         # 댓글수
         sheet['I' + str(i)] = int(soup.find_all(class_='_totalCnt')[0].text.strip()[3:].replace(',',''))
-          
+         
         # 조회수
         if soup.find_all(class_='b m-tcol-c reply'):
             sheet['H' + str(i)] = int(soup.find_all('span', class_='b m-tcol-c reply')[1].text.strip().replace(',',''))
         else:
             sheet['H' + str(i)] = '조회수 찾기 불가'
-             
+            
     print("게시물 주소:", post_url)
     print("댓글수:", sheet['I' + str(i)].value)
     print("조회수:", sheet['H' + str(i)].value)
- 
+
 time.sleep(3)
 driver.close()
-          
+         
 # 엑셀 파일 저장하기
 file_url = "/Users/narae/Downloads/test-res.xlsx"
 book.save(file_url)
