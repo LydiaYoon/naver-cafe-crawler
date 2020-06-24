@@ -4,6 +4,7 @@ import getpass
 import openpyxl
 import os
 import random
+import re
 import time
 from bs4 import BeautifulSoup
 from datetime import datetime
@@ -22,12 +23,15 @@ class Crawler:
         self.TIMEOUT_MIN = 0
         self.TIMEOUT_MAX = 1
         self.TIMEOUT_EXPLICIT = 10  # 명시적 타임아웃
-        self.COLUMN_URL = 'G'
+        
+        self.COLUMN_URL = 'G'  # 게시물 주소
         self.COLUMN_REPLY_COUNT = 'I'  # 댓글수
         self.COLUMN_VIEW_COUNT = 'H'  # 조회수
+        
         self.inputFile = None  # 입력 파일
         self.outputFile = None  # 출력 파일
         self.userAccount = {'id': '', 'pw': ''}  # 사용자 계정
+        
         self.driver = None
         self.book = None
         self.sheet = None
@@ -93,7 +97,10 @@ class Crawler:
     def connectWebDriver(self):
         if not self.driver:
             print('\n크롬 드라이버 연결')
-            self.driver = webdriver.Chrome(os.getcwd() + '/driver/chromedriver.exe')
+            options = webdriver.ChromeOptions()
+            options.add_argument('headless')
+            options.add_experimental_option('excludeSwitches', ['enable-logging'])
+            self.driver = webdriver.Chrome(os.getcwd() + '/driver/chromedriver.exe', options=options)
         
     # 크롬 드라이버 연결 해제
     def closeWebDriver(self):
@@ -156,13 +163,21 @@ class Crawler:
             # 읽기
             print()
             print(i, "번째 행")
-            postUrl = self.sheet[self.COLUMN_URL + str(i)].value  # G열 (URL)
-            print("게시물 주소:", postUrl)
+            postUrl = self.sheet[self.COLUMN_URL + str(i)].value  # 게시물 주소
             
+            # 빈 값인지 확인
             if not postUrl:
                 continue
             
+            # url 형식에 맞는지 확인
+            p = re.compile('(http(s)?:\/\/|www.)([a-z0-9\w]+\.*)+[a-z0-9]{2,4}([\/a-z0-9-%#?&=\w])+(\.[a-z0-9]{2,4}(\?[\/a-z0-9-%#?&=\w]+)*)*')
+            match = p.match(postUrl)
+            if not match:
+                continue
+            
+            # 존재하는 페이지인지 확인
             try:
+                print("게시물 주소:", postUrl)
                 res = urlopen(postUrl)
                 # print(res.status)
             except ValueError as e:
@@ -172,65 +187,64 @@ class Crawler:
                 err = e.read()
                 code = e.getcode()
                 print(code)  # 404
-            
+             
             # 네이버 카페 페이지 들어가기
-            self.driver.get(postUrl)
-            
-            replyCount = ''
-            viewCount = ''
             try:
+                self.driver.get(postUrl)
+                replyCount = '삭제된 게시물'  # 댓글수
+                viewCount = '삭제된 게시물'  # 조회수
                 WebDriverWait(self.driver, self.TIMEOUT_EXPLICIT).until(EC.presence_of_element_located((By.ID, 'cafe_check')))
-                
+                 
                 try:  # 경고창이 있을 경우
-                    WebDriverWait(self.driver, self.TIMEOUT_MAX).until(EC.alert_is_present(),
-                                                'Timed out waiting for PA creation confirmation popup to appear.')
+                    WebDriverWait(self.driver, self.TIMEOUT_MAX).until(EC.alert_is_present())
                     alert = self.driver.switch_to.alert
                     print(alert.text)  # 삭제되었거나 없는 게시글입니다.
                     alert.accept()
-                    
-                    replyCount = '삭제된 게시물'  # 댓글수
-                    viewCount = '삭제된 게시물'  # 조회수
-                    
+                     
                 except:  # 경고창이 없을 경우
                     WebDriverWait(self.driver, self.TIMEOUT_EXPLICIT).until(EC.presence_of_element_located((By.ID, 'cafe_main')))
                     html = self.driver.page_source  # 현재 페이지의 주소를 반환 
                     soup = BeautifulSoup(html, 'html.parser')
-                          
+                           
                     # 카페 포스트 본문을 보여주는 iframe 주소를 찾는다
                     iframes = soup.find_all('iframe', id="cafe_main")
-                          
+                           
                     # for iframe in iframes:
                     #    print(iframe.get('name'))
-                          
+                           
                     self.driver.switch_to_default_content  # 상위 프레임으로 전환
                     self.driver.switch_to.frame('cafe_main')  # cafe_main 프레임으로 전환
-                          
+                           
                     html = self.driver.page_source  # 현재 페이지의 주소를 반환 
                     soup = BeautifulSoup(html, 'html.parser')
-                    
+                     
                     # 댓글수
                     replyEl = soup.find_all(class_='ArticleTool')
                     if replyEl and replyEl[0].find_all('strong', class_='num'):
                         replyCount = int(replyEl[0].find_all('strong', class_='num')[0].text.strip().replace(',', ''))
                     else:
                         replyCount = '댓글수 찾기 불가'                    
-                     
+                      
                     # 조회수
                     viewEl = soup.find_all(class_='article_info')
                     if viewEl and viewEl[0].find_all('span', class_='count'):
                         viewCount = int(viewEl[0].find_all('span', class_='count')[0].text.strip()[3:].replace(',', ''))
                     else:
                         viewCount = '조회수 찾기 불가'
-
+ 
                 finally:
                     self.sheet[self.COLUMN_REPLY_COUNT + str(i)] = replyCount                    
                     self.sheet[self.COLUMN_VIEW_COUNT + str(i)] = viewCount
-                    
+                     
+            except:
+                print(e)
+                pass
+             
             finally:
                 print("댓글수:", replyCount)
                 print("조회수:", viewCount)
                 time.sleep(random.randrange(self.TIMEOUT_MIN, self.TIMEOUT_MAX))
-        
+         
         print('데이터 크롤링 완료')
     
     # 결과 파일 저장하기
@@ -288,37 +302,4 @@ class Crawler:
 if __name__ == '__main__':
     crawler = Crawler()
     crawler.run()
-#     if not crawler.confirmAgreement():
-#         exit() 
-#     
-#     print('\n==================================================\n')
-#     
-#     while True:
-#         crawler.getInputFileName()
-#         if crawler.isExistFile(crawler.inputFile):
-#             if crawler.openInputFile():
-#                 break
-#     
-#     print('\n==================================================\n')
-#     
-#     crawler.getOutputFileName()    
-# 
-#     print('\n==================================================\n')
-#     
-#     while True:
-#         crawler.getUserAccount()
-#         
-#         crawler.connectWebDriver()
-#         crawler.login()
-#         if crawler.isLogin():
-#             break
-# 
-#     print('\n==================================================\n')
-#     
-#     crawler.openInputFile()
-#     crawler.getData()
-#     
-#     print('\n==================================================\n')
-#     
-#     crawler.saveOutputFile()
-#     crawler.closeWebDriver()
+    
